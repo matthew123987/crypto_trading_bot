@@ -1,9 +1,35 @@
-# crypto_trading_bot
-Crypto trading bot that buys and sells automatically 24/7 based on configured thresholds to get profit.
-
 # Cryptocurrency Automated Trading Bot for Kraken
 
-An automated trading bot that executes buy/sell orders for any cryptocurrency on Kraken based on configurable price thresholds. 
+An automated 24/7 trading bot that executes buy/sell orders for any cryptocurrency on Kraken using API key in `~/.krakenapi` based on configurable price thresholds, in order to get profit.
+
+e.g buy bitcoin at $88k, and if it buys, sell it for $91k. If it sells, buy for $88k. Ad infinitum.
+
+Runs on local Ubuntu laptop that is locked and never hibernates and therefore wifi does not disconnect.
+
+I wrote using this using zai-glm-4.7 from https://z.ai/subscribe Lite - $3 a month. This is the budget version of Claude.
+
+It required perhaps ~10 iterations of create code, test on Kraken, fails, get zai to fix it, for the various permeatations within start with cash and buy, start with buy order and wait, start with sell order and wait etc.
+
+TLDR:
+
+```
+sudo systemctl restart crypto-trading-bot.service; tail -f ./trading_bot.log
+```
+
+```
+2026-01-31 14:57:02,823 - INFO - --- Iteration 2537 ---
+2026-01-31 14:57:02,823 - INFO - ============================================================
+2026-01-31 14:57:02,867 - INFO - Found open SELL order for XBTUSD (BTC) at price $90157.00 for 0.07717668 BTC, total trade worth $6958.02
+2026-01-31 14:57:02,868 - INFO - Order ID: OKBWAX-HFEJ6-QC6TN3
+2026-01-31 14:57:02,868 - INFO - Waiting for sell order to fill...
+2026-01-31 14:57:02,868 - INFO - If sell order fills, I will create a buy limit order at price $88265.00 for 0.07717668 BTC, total trade worth $6812.00
+2026-01-31 14:57:02,961 - INFO - Current BTC Price: $81313.4000. $338.29 USD currently in account
+2026-01-31 14:57:02,962 - INFO - Waiting 60 seconds...
+```
+
+e.g here, there is $338.29 profit so far.
+
+Risk - you buy bitcoin at $88k then it crashes and never goes up again and you are left holding the bag.
 
 ## Features
 
@@ -44,22 +70,9 @@ The bot will run:
 
 Use **Background Mode** (run_bot.sh) or **Systemd Mode** (auto-start service) to keep it running 24/7.
 
-### AWS EC2 / Cloud Servers
+The systemd is configured to run even when laptop is locked, and not suspend.
 
-When you're ready to move to AWS EC2:
-1. Launch an Ubuntu EC2 instance (t3.micro or t3.small is sufficient)
-2. SSH into the instance
-3. Clone or upload the bot files
-4. Install dependencies: `pip3 install -r requirements.txt`
-5. Configure `.env` with your Kraken API keys
-6. Use Systemd mode for auto-restart on boot
-7. Close your SSH session - bot keeps running!
-
-**Benefits of EC2:**
-- Bot runs 24/7 without your laptop
-- Automatic restart if instance reboots
-- Access logs from anywhere via SSH
-- Low cost (~$5-15/month for t3.small)
+Also, I think I changed my ubuntu 20.04 settings to not hibernate when locked, but I can't remember what I did.
 
 ## Setup
 
@@ -113,12 +126,21 @@ Edit `.env` with your configuration:
 TRADING_PAIR=XBTUSD       # Trading pair (e.g., XRPUSD, XBTUSD for Bitcoin, ETHUSD for Ethereum)
 BUY_PRICE=87841.00       # Price to buy at (USD per unit)
 SELL_PRICE=89157.00      # Price to sell at (USD per unit)
-DOLLARS_BEING_TRADED=100  # USD amount to buy/sell each trade
+DOLLARS_BUY_AMOUNT=100    # USD amount to buy each trade
+SELL_ALL=False            # If True: sell ALL crypto after buy fills. If False: sell DOLLARS_BUY_AMOUNT worth
 
 # Bot Configuration
 CHECK_INTERVAL=60         # Time between price checks (seconds)
 LOG_LEVEL=INFO            # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+MIN_CRYPTO_TRADE_SIZE=0.00001  # Minimum trade size to avoid "volume minimum not met" errors (in crypto units)
 ```
+
+**Configuration Notes:**
+- `DOLLARS_BUY_AMOUNT`: The USD amount the bot will spend on each buy order
+- `SELL_ALL`: Controls sell behavior:
+  - `False` (default): Only sells `DOLLARS_BUY_AMOUNT` worth of crypto, keeping any remaining crypto
+  - `True`: Sells ALL crypto holdings after a buy order fills
+- `MIN_CRYPTO_TRADE_SIZE`: Prevents errors from Kraken's minimum volume requirements. Adjust if trading different cryptocurrencies with different minimum sizes.
 
 ## How It Works
 
@@ -149,6 +171,25 @@ The bot uses **limit orders** for better price control:
 - **Buy Orders**: Placed at BUY_PRICE (waits for price to drop)
 - **Sell Orders**: Placed at SELL_PRICE (waits for price to rise)
 - No slippage - you get exactly your target price
+
+### Sell Order Behavior (SELL_ALL)
+
+The `SELL_ALL` configuration parameter determines how much crypto is sold after a buy order fills:
+
+**When SELL_ALL=False (default):**
+- After a buy order fills, only sells `DOLLARS_BUY_AMOUNT` worth of crypto
+- Any additional crypto holdings are retained in your account
+- Use this when you want to accumulate crypto over time
+
+**When SELL_ALL=True:**
+- After a buy order fills, sells ALL of the trading pair crypto in your account
+- No crypto is retained (unless you had other crypto pairs)
+- Use this when you want to trade with the full amount each cycle
+
+**Example:**
+- Buy $100 worth of XRP at $0.50 → 200 XRP
+- With SELL_ALL=False: Sell $100 worth (166.67 XRP) at $0.60 → $60 profit, keep 33.33 XRP
+- With SELL_ALL=True: Sell all 200 XRP at $0.60 → $120 return, 0 XRP remaining
 
 
 ### Start Bot
@@ -189,7 +230,7 @@ python3 trading_bot.py
 
 **Note:** Bot stops when you close the terminal.
 
-### 2. Background Mode (Manual Control)
+### 2. Background Mode (Manual Control), also testing
 
 Run the bot in the background:
 
@@ -221,7 +262,13 @@ tail -f trading_bot.log
 
 ### 3. Systemd Mode (Auto-Restart + Anti-Suspension)
 
-Run as a system service with auto-restart and prevent system suspension:
+Run as a system service with auto-restart and prevent system suspension, for 24/7 running:
+
+I run this, and leave it 24/7, and lock laptop which is plugged in:
+
+```
+sudo systemctl restart crypto-trading-bot.service; tail -f ./trading_bot.log
+```
 
 **About the Inhibitor Service:**
 The bot includes a companion service (`crypto-trading-bot-inhibitor.service`) that prevents your system from suspending or sleeping while the bot is running. This is essential for laptops/desktops because:
@@ -301,8 +348,6 @@ tail -f trading_bot.log
 - Unattended operation
 - When you need accurate timing regardless of system state
 
-**Note:** The `./stop_bot.sh` script will detect if systemd is managing the bot and provide instructions to use systemctl commands instead.
-
 ## Monitoring
 
 ### Console Output
@@ -330,9 +375,13 @@ All activities are logged to `trading_bot.log`:
 | `TRADING_PAIR` | Trading pair | `XRPUSD`, `XBTUSD`, `ETHUSD`, `LTCUSD` |
 | `BUY_PRICE` | Buy limit order price | `0.45` (XRP), `40000` (BTC), `2000` (ETH) |
 | `SELL_PRICE` | Sell limit order price | `0.60` (XRP), `45000` (BTC), `2500` (ETH) |
-| `DOLLARS_BEING_TRADED` | USD amount to buy/sell each trade | `100`, `500`, `1000` (any amount in USD) |
+| `DOLLARS_BUY_AMOUNT` | USD amount to buy each trade | `100`, `500`, `1000` (any amount in USD) |
+| `SELL_ALL` | Whether to sell all crypto or just DOLLARS_BUY_AMOUNT worth | `True`, `False` |
 | `CHECK_INTERVAL` | Seconds between price checks | `60` (1 minute), `300` (5 minutes) |
 | `LOG_LEVEL` | Logging verbosity | `INFO`, `DEBUG`, `WARNING` |
+| `MIN_CRYPTO_TRADE_SIZE` | Minimum trade size in crypto units (prevents volume errors) | `0.00001`, `0.001`, `0.01` |
+
+**Note:** `DOLLARS_BEING_TRADED` is supported as a backward-compatible alias for `DOLLARS_BUY_AMOUNT`.
 
 ## Important Notes
 
@@ -407,6 +456,18 @@ Error: EOrder:Insufficient funds
 ```
 
 **Solution**: Ensure you have enough USD to buy or enough crypto to sell in your Kraken account.
+
+### Minimum Volume Not Met
+
+```
+ℹ Cannot place sell order: amount (0.000001 BTC) is below minimum trade size (0.00001 BTC)
+ℹ Skipping sell order - amount too small for Kraken minimum volume requirement
+```
+
+**Solution**: This is not an error - the bot is preventing a trade that would fail due to Kraken's minimum volume requirements. Options:
+- Increase `DOLLARS_BUY_AMOUNT` to generate larger crypto amounts
+- Adjust `MIN_CRYPTO_TRADE_SIZE` if trading a different cryptocurrency with different minimums
+- This is especially common when trading high-value cryptocurrencies like BTC with small dollar amounts
 
 ### Network Errors
 
