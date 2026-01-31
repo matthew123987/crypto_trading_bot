@@ -1,0 +1,17 @@
+[Unit]
+Description=Inhibitor for Crypto Trading Bot - Prevents system suspension
+Before=sleep.target
+Before=suspend.target
+Before=systemd-suspend.service
+Before=systemd-hibernate.service
+Before=systemd-hybrid-sleep.service
+Before=systemd-sleep.service
+
+[Service]
+Type=exec
+User=root
+ExecStart=/bin/systemd-inhibit --what=sleep --who="Crypto Trading Bot" --why="Trading bot is running - do not suspend" /bin/sleep infinity
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

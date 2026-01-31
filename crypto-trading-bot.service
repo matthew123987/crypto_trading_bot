@@ -1,0 +1,18 @@
+[Unit]
+Description=Crypto Trading Bot
+After=network.target
+Conflicts=sleep.target
+Conflicts=suspend.target
+
+[Service]
+Type=simple
+User=matthew
+WorkingDirectory=/home/matthew/Documents/code/trading/crypto_trading_bot
+ExecStart=/usr/bin/python3 /home/matthew/Documents/code/trading/crypto_trading_bot/trading_bot.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/matthew/Documents/code/trading/crypto_trading_bot/trading_bot.log
+StandardError=append:/home/matthew/Documents/code/trading/crypto_trading_bot/trading_bot.log
+
+[Install]
+WantedBy=multi-user.target
